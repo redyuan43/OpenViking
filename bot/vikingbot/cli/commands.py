@@ -234,7 +234,7 @@ def gateway(
         True, "--agent/--no-agent", help="Enable agent loop for OpenAPI/chat"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
-    config_path: str = typer.Option(None, "--config-path", "-p", help="ov.conf path"),
+    config_path: str = typer.Option(None, "--config", "-c", help="ov.conf path"),
 ):
     """Start the vikingbot gateway with OpenAPI chat enabled by default."""
 
@@ -579,11 +579,10 @@ def chat(
         config, bus, session_manager, cron, quiet=is_single_turn, eval=eval
     )
 
-    # 配置日志：始终输出DEBUG级别到文件，控制台输出按模式区分
     logger.remove()
+    import os
 
-    # 输出DEBUG日志到文件，自动轮转保留7天
-    log_file = get_data_dir() / "vikingbot.debug.log"
+    log_file = get_data_dir() / f"vikingbot.debug.{os.getpid()}.log"
     logger.add(
         log_file,
         level="DEBUG",
@@ -594,12 +593,9 @@ def chat(
         diagnose=True,
     )
 
-    # 控制台日志配置
     if logs:
-        # 开启日志模式控制台输出DEBUG级别
         logger.add(sys.stderr, level="DEBUG")
     else:
-        # 默认模式控制台仅输出错误，不显示普通运行日志
         logger.add(sys.stderr, level="ERROR")
 
     async def run():

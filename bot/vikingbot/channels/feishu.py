@@ -45,8 +45,7 @@ try:
         GetMessageResourceRequest,
         P2ImMessageReceiveV1,
         ReplyMessageRequest,
-        ReplyMessageRequestBody,
-        DeleteMessageReactionRequest
+        ReplyMessageRequestBody
     )
 
     FEISHU_AVAILABLE = True
@@ -100,7 +99,6 @@ class FeishuChannel(BaseChannel):
         self._tenant_access_token: str | None = None
         self._token_expire_time: float = 0
         self._chat_mode_cache: dict[str, str] = {}  # 缓存群类型：group(普通群)/thread(话题群)
-        self._bot_open_id: str | None = None  # 机器人自身的open_id
 
     async def _get_tenant_access_token(self) -> str:
         """Get tenant access token for Feishu API."""
