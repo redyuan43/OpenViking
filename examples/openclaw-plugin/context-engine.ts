@@ -386,7 +386,7 @@ export function createMemoryOpenVikingContextEngine(params: {
           tokenBudget,
           agentId,
         );
-        const hasSummaryArchive = ctx?.summary_archive ? 1 : 0;
+        const hasSummaryArchive = ctx?.latest_archive_overview ? 1 : 0;
         const activeCount = ctx?.messages?.length ?? 0;
         logger.info(`openviking: assemble OV ctx summaryArchive=${hasSummaryArchive} active=${activeCount}`);
 
@@ -395,14 +395,14 @@ export function createMemoryOpenVikingContextEngine(params: {
           return { messages, estimatedTokens: roughEstimate(messages) };
         }
 
-        if (!ctx.summary_archive && ctx.messages.length < messages.length) {
+        if (!ctx.latest_archive_overview && ctx.messages.length < messages.length) {
           logger.info(`openviking: assemble passthrough (OV msgs=${ctx.messages.length} < input msgs=${messages.length})`);
           return { messages, estimatedTokens: roughEstimate(messages) };
         }
 
         const assembled: AgentMessage[] = [
-          ...(ctx.summary_archive
-            ? [{ role: "user" as const, content: ctx.summary_archive.overview }]
+          ...(ctx.latest_archive_overview
+            ? [{ role: "user" as const, content: ctx.latest_archive_overview }]
             : []),
           ...ctx.messages.flatMap((m) => convertToAgentMessages(m)),
         ];
@@ -421,7 +421,7 @@ export function createMemoryOpenVikingContextEngine(params: {
         return {
           messages: sanitized,
           estimatedTokens: ctx.estimatedTokens,
-          ...(ctx.summary_archive
+          ...(ctx.latest_archive_overview
             ? { systemPromptAddition: buildSystemPromptAddition() }
             : {}),
         };

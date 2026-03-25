@@ -3,6 +3,8 @@
 
 """SDK tests using AsyncHTTPClient against a real uvicorn server."""
 
+import asyncio
+
 import pytest_asyncio
 
 from openviking_cli.client.http import AsyncHTTPClient
@@ -101,12 +103,37 @@ async def test_sdk_session_lifecycle(http_client):
     assert info["session_id"] == session_id
 
     context = await client.get_session_context(session_id)
-    assert context["summary_archive"] is None
+    assert context["latest_archive_overview"] == ""
+    assert context["latest_archive_id"] == ""
+    assert context["pre_archive_abstracts"] == []
     assert [m["parts"][0]["text"] for m in context["messages"]] == ["Hello from SDK"]
 
     # List
     sessions = await client.list_sessions()
     assert isinstance(sessions, list)
+
+
+async def test_sdk_get_session_archive(http_client):
+    client, _ = http_client
+
+    session_info = await client.create_session()
+    session_id = session_info["session_id"]
+
+    await client.add_message(session_id, "user", "Archive me")
+    commit_result = await client.commit_session(session_id)
+    task_id = commit_result["task_id"]
+
+    for _ in range(100):
+        task = await client.get_task(task_id)
+        if task and task["status"] in ("completed", "failed"):
+            break
+        await asyncio.sleep(0.1)
+
+    archive = await client.get_session_archive(session_id, "archive_001")
+    assert archive["archive_id"] == "archive_001"
+    assert archive["overview"]
+    assert archive["abstract"]
+    assert [m["parts"][0]["text"] for m in archive["messages"]] == ["Archive me"]
 
 
 # ===================================================================

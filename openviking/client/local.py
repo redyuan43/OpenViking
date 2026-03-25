@@ -349,6 +349,13 @@ class LocalClient(BaseClient):
         result = await session.get_session_context(token_budget=token_budget)
         return _to_jsonable(result)
 
+    async def get_session_archive(self, session_id: str, archive_id: str) -> Dict[str, Any]:
+        """Get one completed archive for a session."""
+        session = self._service.sessions.session(self._ctx, session_id)
+        await session.load()
+        result = await session.get_session_archive(archive_id)
+        return _to_jsonable(result)
+
     async def delete_session(self, session_id: str) -> None:
         """Delete a session."""
         await self._service.sessions.delete(session_id, self._ctx)

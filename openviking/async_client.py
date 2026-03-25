@@ -150,6 +150,11 @@ class AsyncOpenViking:
         await self._ensure_initialized()
         return await self._client.get_session_context(session_id, token_budget=token_budget)
 
+    async def get_session_archive(self, session_id: str, archive_id: str) -> Dict[str, Any]:
+        """Get one completed archive for a session."""
+        await self._ensure_initialized()
+        return await self._client.get_session_archive(session_id, archive_id)
+
     async def delete_session(self, session_id: str) -> None:
         """Delete a session."""
         await self._ensure_initialized()

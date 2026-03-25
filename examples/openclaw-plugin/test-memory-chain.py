@@ -5,8 +5,8 @@ OpenClaw 记忆链路完整测试脚本
 验证 OpenViking 记忆插件重构后的端到端链路:
 1. afterTurn: 本轮消息无损写入 OpenViking session，sessionId 一致
 2. commit: 归档消息 + 提取长期记忆 + .meta.json 写入
-3. assemble: 同用户继续对话时, 从 summary_archive + active messages 重组上下文
-4. assemble budget trimming: 小 token budget 下 summary_archive 被裁剪
+3. assemble: 同用户继续对话时, 从 latest_archive_overview + active messages 重组上下文
+4. assemble budget trimming: 小 token budget 下 latest_archive_overview 被裁剪
 5. sessionId 一致性: 整条链路使用统一的 sessionId (无 sessionKey)
 6. 新用户记忆召回: 验证 before_prompt_build auto-recall
 
@@ -98,12 +98,12 @@ ASSEMBLE_FOLLOWUP_MESSAGES = [
     {
         "question": "对了，我之前提到的订单系统重构进展到哪了？支付模块开始了吗？",
         "anchor_keywords": ["订单系统", "支付模块", "60%"],
-        "hook": "assemble — summary_archive 重组",
+        "hook": "assemble — latest_archive_overview 重组",
     },
     {
         "question": "我们团队消息队列最终选了什么？之前我跟你讨论过 Kafka 和 RabbitMQ 的取舍。",
         "anchor_keywords": ["Kafka", "RabbitMQ", "消息队列"],
-        "hook": "assemble — summary_archive 重组",
+        "hook": "assemble — latest_archive_overview 重组",
     },
 ]
 
@@ -415,16 +415,16 @@ def run_phase_after_turn(openviking_url: str, user_id: str, verbose: bool) -> bo
     ctx = inspector.get_session_context(user_id)
     if ctx:
         ctx_msg_count = len(ctx.get("messages", []))
-        has_summary_archive = ctx.get("summary_archive") is not None
+        has_summary_archive = bool(ctx.get("latest_archive_overview"))
         check(
             "context 返回 messages > 0",
             ctx_msg_count > 0,
             f"messages={ctx_msg_count}",
         )
         check(
-            "commit 前 summary_archive 为空",
+            "commit 前 latest_archive_overview 为空",
             not has_summary_archive,
-            f"summary_archive={ctx.get('summary_archive')}",
+            f"latest_archive_overview={ctx.get('latest_archive_overview')}",
         )
         if verbose and ctx.get("stats"):
             console.print(f"  [dim]stats: {ctx['stats']}[/dim]")
@@ -500,20 +500,20 @@ def run_phase_commit(openviking_url: str, user_id: str, verbose: bool) -> bool:
 
     # 3.3 检查归档目录结构
     console.print("\n[bold]3.3 归档目录结构检查[/bold]")
-    # 尝试用 context 来间接确认 summary_archive 存在
+    # 尝试用 context 来间接确认 latest_archive_overview 存在
     ctx_after = inspector.get_session_context(user_id)
     if ctx_after:
-        has_summary_archive = ctx_after.get("summary_archive") is not None
+        has_summary_archive = bool(ctx_after.get("latest_archive_overview"))
         check(
-            "commit 后 context 返回 summary_archive",
+            "commit 后 context 返回 latest_archive_overview",
             has_summary_archive,
-            f"summary_archive={ctx_after.get('summary_archive')}",
+            f"latest_archive_overview={ctx_after.get('latest_archive_overview')}",
         )
 
         if has_summary_archive:
-            overview = ctx_after["summary_archive"].get("overview", "")
+            overview = ctx_after.get("latest_archive_overview", "")
             check(
-                "summary_archive.overview 非空 (摘要已生成)",
+                "latest_archive_overview 非空 (摘要已生成)",
                 len(overview) > 10,
                 f"overview 长度={len(overview)} chars",
             )
@@ -541,29 +541,29 @@ def run_phase_commit(openviking_url: str, user_id: str, verbose: bool) -> bool:
 def run_phase_assemble(
     gateway_url: str, openviking_url: str, user_id: str, delay: float, verbose: bool
 ) -> bool:
-    """Phase 4: Assemble 验证 — 同用户继续对话，验证上下文从 summary archive 重组。"""
+    """Phase 4: Assemble 验证 — 同用户继续对话，验证上下文从 latest archive overview 重组。"""
     console.print()
     console.rule("[bold]Phase 4: Assemble 验证 — 同用户继续对话[/bold]")
     console.print()
     console.print("[dim]验证点:[/dim]")
     console.print(
-        "[dim]- 同用户对话触发 assemble(): 从 OV summary archive + active messages 重组上下文[/dim]"
+        "[dim]- 同用户对话触发 assemble(): 从 OV latest_archive_overview + active messages 重组上下文[/dim]"
     )
     console.print("[dim]- 回复应能引用 Phase 1 中已被归档的信息[/dim]")
-    console.print("[dim]- context 应返回 summary_archive (证明 assemble 有数据源)[/dim]")
+    console.print("[dim]- context 应返回 latest_archive_overview (证明 assemble 有数据源)[/dim]")
     console.print()
 
     inspector = OpenVikingInspector(openviking_url)
 
-    # 4.1 确认 assemble 的数据源 (summary_archive) 就绪
+    # 4.1 确认 assemble 的数据源 (latest_archive_overview) 就绪
     console.print("[bold]4.1 确认 assemble 数据源[/bold]")
     ctx = inspector.get_session_context(user_id)
     if ctx:
-        has_summary_archive = ctx.get("summary_archive") is not None
+        has_summary_archive = bool(ctx.get("latest_archive_overview"))
         check(
-            "context 返回 summary_archive",
+            "context 返回 latest_archive_overview",
             has_summary_archive,
-            f"summary_archive={ctx.get('summary_archive')}",
+            f"latest_archive_overview={ctx.get('latest_archive_overview')}",
         )
     else:
         check("context 可用", False)
@@ -578,7 +578,7 @@ def run_phase_assemble(
         included = stats.get("includedArchives", 0)
         dropped = stats.get("droppedArchives", 0)
         check(
-            "budget=1 时 summary_archive 被裁剪",
+            "budget=1 时 latest_archive_overview 被裁剪",
             included == 0 or dropped > 0,
             f"total={total_archives}, included={included}, dropped={dropped}",
         )
@@ -688,11 +688,11 @@ def run_phase_session_id(openviking_url: str, user_id: str, verbose: bool) -> bo
     console.print("\n[bold]5.3 同一 sessionId 查询归档[/bold]")
     ctx = inspector.get_session_context(user_id)
     if ctx:
-        has_data = ctx.get("summary_archive") is not None or len(ctx.get("messages", [])) > 0
+        has_data = bool(ctx.get("latest_archive_overview")) or len(ctx.get("messages", [])) > 0
         check(
             "context(user_id) 返回数据",
             has_data,
-            f"summary_archive={ctx.get('summary_archive')}, messages={len(ctx.get('messages', []))}",
+            f"latest_archive_overview={ctx.get('latest_archive_overview')}, messages={len(ctx.get('messages', []))}",
         )
     else:
         check("context(user_id) 可调用", False)

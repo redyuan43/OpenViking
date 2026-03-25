@@ -157,6 +157,28 @@ async def get_session_context(
     return Response(status="ok", result=_to_jsonable(result))
 
 
+@router.get("/{session_id}/archives/{archive_id}")
+async def get_session_archive(
+    session_id: str = Path(..., description="Session ID"),
+    archive_id: str = Path(..., description="Archive ID"),
+    _ctx: RequestContext = Depends(get_request_context),
+):
+    """Get one completed archive for a session."""
+    from openviking_cli.exceptions import NotFoundError
+
+    service = get_service()
+    session = service.sessions.session(_ctx, session_id)
+    await session.load()
+    try:
+        result = await session.get_session_archive(archive_id)
+    except NotFoundError:
+        return Response(
+            status="error",
+            error=ErrorInfo(code="NOT_FOUND", message=f"Archive {archive_id} not found"),
+        )
+    return Response(status="ok", result=_to_jsonable(result))
+
+
 @router.delete("/{session_id}")
 async def delete_session(
     session_id: str = Path(..., description="Session ID"),

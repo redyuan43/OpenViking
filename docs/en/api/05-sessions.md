@@ -277,7 +277,7 @@ ov session get-session-context a1b2c3d4 --token-budget 128000
 
 ---
 
-### get_session_archive() / ArchiveExpand
+### get_session_archive()
 
 Get the full contents of one completed archive for a session.
 
@@ -317,6 +317,12 @@ GET /api/v1/sessions/{session_id}/archives/{archive_id}
 ```bash
 curl -X GET "http://localhost:1933/api/v1/sessions/a1b2c3d4/archives/archive_002" \
   -H "X-API-Key: your-key"
+```
+
+**CLI**
+
+```bash
+ov session get-session-archive a1b2c3d4 archive_002
 ```
 
 **Response**

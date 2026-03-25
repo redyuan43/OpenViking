@@ -53,6 +53,23 @@ pub async fn get_session_context(
     Ok(())
 }
 
+pub async fn get_session_archive(
+    client: &HttpClient,
+    session_id: &str,
+    archive_id: &str,
+    output_format: OutputFormat,
+    compact: bool,
+) -> Result<()> {
+    let path = format!(
+        "/api/v1/sessions/{}/archives/{}",
+        url_encode(session_id),
+        url_encode(archive_id)
+    );
+    let response: serde_json::Value = client.get(&path, &[]).await?;
+    output_success(&response, output_format, compact);
+    Ok(())
+}
+
 pub async fn delete_session(
     client: &HttpClient,
     session_id: &str,

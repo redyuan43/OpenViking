@@ -94,6 +94,10 @@ class SyncHTTPClient:
         """Get assembled session context."""
         return run_async(self._async_client.get_session_context(session_id, token_budget))
 
+    def get_session_archive(self, session_id: str, archive_id: str) -> Dict[str, Any]:
+        """Get one completed archive for a session."""
+        return run_async(self._async_client.get_session_archive(session_id, archive_id))
+
     def delete_session(self, session_id: str) -> None:
         """Delete a session."""
         run_async(self._async_client.delete_session(session_id))

@@ -366,7 +366,9 @@ export class OpenVikingClient {
     tokenBudget: number = 128_000,
     agentId?: string,
   ): Promise<{
-    summary_archive: { overview: string; abstract: string } | null;
+    latest_archive_overview: string;
+    latest_archive_id: string;
+    pre_archive_abstracts: Array<{ archive_id: string; abstract: string }>;
     messages: Array<{ id: string; role: string; parts: unknown[]; created_at: string }>;
     estimatedTokens: number;
     stats: {
@@ -380,6 +382,23 @@ export class OpenVikingClient {
   }> {
     return this.request(
       `/api/v1/sessions/${encodeURIComponent(sessionId)}/context?token_budget=${tokenBudget}`,
+      { method: "GET" },
+      agentId,
+    );
+  }
+
+  async getSessionArchive(
+    sessionId: string,
+    archiveId: string,
+    agentId?: string,
+  ): Promise<{
+    archive_id: string;
+    abstract: string;
+    overview: string;
+    messages: Array<{ id: string; role: string; parts: unknown[]; created_at: string }>;
+  }> {
+    return this.request(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/archives/${encodeURIComponent(archiveId)}`,
       { method: "GET" },
       agentId,
     );

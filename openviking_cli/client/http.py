@@ -721,6 +721,13 @@ class AsyncHTTPClient(BaseClient):
         )
         return self._handle_response(response)
 
+    async def get_session_archive(self, session_id: str, archive_id: str) -> Dict[str, Any]:
+        """Get one completed archive for a session."""
+        response = await self._http.get(
+            f"/api/v1/sessions/{session_id}/archives/{archive_id}",
+        )
+        return self._handle_response(response)
+
     async def delete_session(self, session_id: str) -> None:
         """Delete a session."""
         response = await self._http.delete(f"/api/v1/sessions/{session_id}")

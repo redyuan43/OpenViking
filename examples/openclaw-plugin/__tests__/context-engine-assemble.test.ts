@@ -65,10 +65,9 @@ function makeEngine(contextResult: unknown) {
 describe("context-engine assemble()", () => {
   it("assembles summary archive and completed tool parts into agent messages", async () => {
     const { engine, client, resolveAgentId } = makeEngine({
-      summary_archive: {
-        overview: "# Session Summary\nPreviously discussed repository setup.",
-        abstract: "Previously discussed repository setup.",
-      },
+      latest_archive_overview: "# Session Summary\nPreviously discussed repository setup.",
+      latest_archive_id: "archive_001",
+      pre_archive_abstracts: [],
       messages: [
         {
           id: "msg_1",
@@ -139,7 +138,9 @@ describe("context-engine assemble()", () => {
 
   it("emits a non-error toolResult for a running tool (not a synthetic error)", async () => {
     const { engine } = makeEngine({
-      summary_archive: null,
+      latest_archive_overview: "",
+      latest_archive_id: "",
+      pre_archive_abstracts: [],
       messages: [
         {
           id: "msg_2",
@@ -197,7 +198,9 @@ describe("context-engine assemble()", () => {
 
   it("degrades tool parts without tool_id into assistant text blocks", async () => {
     const { engine } = makeEngine({
-      summary_archive: null,
+      latest_archive_overview: "",
+      latest_archive_id: "",
+      pre_archive_abstracts: [],
       messages: [
         {
           id: "msg_3",
@@ -244,7 +247,9 @@ describe("context-engine assemble()", () => {
 
   it("falls back to live messages when assembled active messages look truncated", async () => {
     const { engine } = makeEngine({
-      summary_archive: null,
+      latest_archive_overview: "",
+      latest_archive_id: "",
+      pre_archive_abstracts: [],
       messages: [
         {
           id: "msg_4",
