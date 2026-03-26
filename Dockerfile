@@ -41,13 +41,15 @@ COPY openviking/ openviking/
 COPY openviking_cli/ openviking_cli/
 COPY src/ src/
 COPY third_party/ third_party/
+COPY bot/ bot/
 
 # Install project and dependencies (triggers setup.py artifact builds + build_extension).
+# Also install bot-full optional dependencies so they're available in the venv for runtime-with-bot
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM} \
-    uv sync --no-editable
+    uv sync --no-editable --extra bot-full
 
-# Stage 4: runtime
-FROM python:3.13-slim-trixie
+# Stage 4a: runtime (base image without bot)
+FROM python:3.13-slim-trixie AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -69,3 +71,26 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 # Default runs server; override command to run CLI, e.g.:
 # docker run --rm <image> -v "$HOME/.openviking/ovcli.conf:/root/.openviking/ovcli.conf" openviking --help
 CMD ["openviking-server"]
+
+# Stage 4b: runtime with bot (includes bot dependencies and --with-bot flag)
+FROM python:3.13-slim-trixie AS runtime-with-bot
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    libstdc++6 \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=py-builder /app/.venv /app/.venv
+COPY --from=py-builder /app/bot /app/bot
+ENV PATH="/app/.venv/bin:$PATH"
+ENV OPENVIKING_CONFIG_FILE="/app/ov.conf"
+
+EXPOSE 1933
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:1933/health || exit 1
+
+CMD ["openviking-server", "--with-bot"]
