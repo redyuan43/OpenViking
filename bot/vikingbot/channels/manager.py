@@ -218,7 +218,6 @@ class ChannelManager:
         while True:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_outbound(), timeout=1.0)
-                logger.info(f"Received outbound message: {msg}")
 
                 # Try exact match first
                 channel = self.channels.get(msg.session_key.channel_key())

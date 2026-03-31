@@ -611,6 +611,7 @@ class SandboxConfig(BaseModel):
     backend: SandboxBackend = SandboxBackend.DIRECT
     mode: SandboxMode = SandboxMode.SHARED
     backends: SandboxBackendsConfig = Field(default_factory=SandboxBackendsConfig)
+    restrict_workspaces: dict[str, str] = Field(default_factory=dict)
 
 
 class Config(BaseSettings):
