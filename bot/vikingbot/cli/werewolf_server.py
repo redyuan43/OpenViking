@@ -989,6 +989,29 @@ def create_fastapi_app(state: GameState) -> FastAPI:
         except Exception as e:
             return JSONResponse(content={"error": str(e)}, status_code=500)
 
+    @fastapi_app.get("/api/game-file/{channel_id}/{filename}")
+    async def get_game_file(channel_id: str, filename: str):
+        """Get a game file (GAME.md or GAME_RECORD.md) for a channel."""
+        bot_workspace = state.storage_path / "bot" / "workspace"
+
+        if channel_id == "god" and filename == "GAME_RECORD.md":
+            file_path = bot_workspace / "bot_api__god" / "GAME_RECORD.md"
+        else:
+            file_path = bot_workspace / f"bot_api__{channel_id}" / filename
+
+        if not file_path.exists():
+            return JSONResponse(content={"error": "File not found"}, status_code=404)
+
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            return JSONResponse(content={
+                "channel_id": channel_id,
+                "filename": filename,
+                "content": content
+            })
+        except Exception as e:
+            return JSONResponse(content={"error": str(e)}, status_code=500)
+
     def scan_directory_tree(root_path: Path, relative_path: str) -> List[Dict[str, Any]]:
         """Recursively scan a directory and build a tree structure."""
         result = []

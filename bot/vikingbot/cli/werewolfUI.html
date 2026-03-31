@@ -2093,6 +2093,18 @@
       return null;
     }
 
+    async function loadGameFile(channelId, filename) {
+      try {
+        const res = await fetch('/api/game-file/' + encodeURIComponent(channelId) + '/' + encodeURIComponent(filename), { cache: 'no-store' });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.error('Failed to load game file:', e);
+      }
+      return null;
+    }
+
     async function loadOpenvikingFile(path) {
       try {
         const res = await fetch('/api/openviking/file?path=' + encodeURIComponent(path), { cache: 'no-store' });
@@ -2171,24 +2183,18 @@
       const worldOpen = uiState.expandedDetails.size === 0 || uiState.expandedDetails.has(worldKey) ? ' open' : '';
       html += '<details' + worldOpen + ' data-index="0"><summary>世界记忆</summary><div class="node">';
 
-      // 显示对话记录
+      // 只显示当前对话记录
       if (uiState.conversations && uiState.conversations.files) {
-        uiState.conversations.files.forEach((f, idx) => {
-          const isCurrent = f.session_id === uiState.conversations.current_session_id;
-          const suffix = isCurrent ? ' (当前)' : '';
-          const label = 'CONVERSATION_' + f.session_id + '.md';
-          html += fileButton('conversation/' + f.session_id, label, suffix.trim());
-        });
-      }
-
-      // 显示GAME_RECORD记录
-      if (uiState.lastData && uiState.lastData.history && uiState.lastData.history.records) {
-        uiState.lastData.history.records.forEach((r, idx) => {
-          const suffix = idx === 0 ? ' (Latest)' : ` (${r.session.replace('cli__default__werewolf_', '')})`;
-          html += fileButton('world/GAME_RECORD_' + r.session + '.md', 'GAME_RECORD.md', suffix.trim());
-        });
-      } else if (uiState.lastData) {
-        html += fileButton('world/GAME_RECORD.md', 'GAME_RECORD.md', 'GAME_RECORD');
+        const currentSession = uiState.conversations.files.find(f => f.session_id === uiState.conversations.current_session_id);
+        if (currentSession) {
+          const label = 'CONVERSATION_' + currentSession.session_id + '.md';
+          html += fileButton('conversation/' + currentSession.session_id, label, '当前');
+        } else if (uiState.conversations.files.length > 0) {
+          // 如果没有找到当前session，显示最新的一个
+          const latest = uiState.conversations.files[0];
+          const label = 'CONVERSATION_' + latest.session_id + '.md';
+          html += fileButton('conversation/' + latest.session_id, label, '最新');
+        }
       }
       html += '</div></details>';
 
@@ -2222,43 +2228,61 @@
       const playerOpen = uiState.expandedDetails.size === 0 || uiState.expandedDetails.has(playerKey) ? ' open' : '';
       html += '<details' + playerOpen + ' data-index="4"><summary>智能体记忆</summary><div class="node">';
 
+      // 获取玩家列表来确定座位号
+      const players = uiState.lastData ? (uiState.lastData.players || []) : [];
+      const playerIdToSeat = {};
+      players.forEach((p, i) => {
+        playerIdToSeat[p.id] = i + 1;
+      });
+
+      // 先显示god
       if (uiState.botSessions && uiState.botSessions.files) {
-        // 按channel_id分组
-        const sessionsByChannel = {};
-        uiState.botSessions.files.forEach(f => {
-          if (!sessionsByChannel[f.channel_id]) {
-            sessionsByChannel[f.channel_id] = [];
-          }
-          sessionsByChannel[f.channel_id].push(f);
-        });
+        const godSessions = uiState.botSessions.files.filter(f => f.channel_id === 'god');
+        if (godSessions.length > 0) {
+          const godKey = 'detail_5_god';
+          const godOpen = uiState.expandedDetails.has(godKey) ? ' open' : '';
+          html += '<details' + godOpen + ' data-index="5"><summary>god</summary><div class="node">';
 
-        // 获取玩家列表来确定座位号
-        const players = uiState.lastData ? (uiState.lastData.players || []) : [];
-        const playerIdToSeat = {};
-        players.forEach((p, i) => {
-          playerIdToSeat[p.id] = i + 1;
-        });
+          // 显示当前session文件
+          const currentGodSession = godSessions.find(s =>
+            uiState.botSessions.current_session_id && s.session_id.includes(uiState.botSessions.current_session_id)
+          ) || godSessions[0];
+          html += fileButton('botsession/' + currentGodSession.filename, currentGodSession.filename, '当前会话');
 
-        // 为每个channel生成目录
-        Object.keys(sessionsByChannel).sort().forEach((channelId, idx) => {
-          const sessions = sessionsByChannel[channelId];
-          const seatNum = playerIdToSeat[channelId] || (channelId === 'god' ? '裁判' : channelId.replace('player_', ''));
-          const label = channelId === 'god' ? 'god' : (seatNum + '号 ' + channelId);
-          const channelDetailKey = 'detail_' + (5 + idx) + '_' + label;
-          const channelDetailOpen = uiState.expandedDetails.has(channelDetailKey) ? ' open' : '';
-
-          html += '<details' + channelDetailOpen + ' data-index="' + (5 + idx) + '"><summary>' + escapeHtml(label) + '</summary><div class="node">';
-
-          // 显示该channel的所有session文件
-          sessions.forEach((s, sIdx) => {
-            const isCurrent = uiState.botSessions.current_session_id && s.session_id.includes(uiState.botSessions.current_session_id);
-            const suffix = isCurrent ? ' (当前)' : '';
-            html += fileButton('botsession/' + s.filename, s.filename, suffix.trim());
-          });
+          // 显示GAME_RECORD.md
+          html += fileButton('gamefile/god/GAME_RECORD.md', 'GAME_RECORD.md', '游戏记录');
 
           html += '</div></details>';
-        });
+        }
       }
+
+      // 显示玩家
+      players.forEach((p, i) => {
+        const seat = i + 1;
+        const pId = p.id;
+        const label = String(seat).padStart(2, '0') + '号 ' + pId;
+        const playerDetailKey = 'detail_' + (6 + i) + '_' + label;
+        const playerDetailOpen = uiState.expandedDetails.has(playerDetailKey) ? ' open' : '';
+
+        html += '<details' + playerDetailOpen + ' data-index="' + (6 + i) + '"><summary>' + escapeHtml(label) + '</summary><div class="node">';
+
+        if (uiState.botSessions && uiState.botSessions.files) {
+          const playerSessions = uiState.botSessions.files.filter(f => f.channel_id === pId);
+          if (playerSessions.length > 0) {
+            // 显示当前session文件
+            const currentSession = playerSessions.find(s =>
+              uiState.botSessions.current_session_id && s.session_id.includes(uiState.botSessions.current_session_id)
+            ) || playerSessions[0];
+            html += fileButton('botsession/' + currentSession.filename, currentSession.filename, '当前会话');
+          }
+        }
+
+        // 显示GAME.md
+        html += fileButton('gamefile/' + pId + '/GAME.md', 'GAME.md', '玩家文件');
+
+        html += '</div></details>';
+      });
+
       html += '</div></details>';
 
       root.innerHTML = html;
@@ -2311,6 +2335,15 @@
         const sessionData = await loadBotSession(filename);
         if (sessionData) {
           setViewer('智能体会话 / ' + sessionData.filename, sessionData.content);
+        }
+      } else if (path.startsWith('gamefile/')) {
+        const parts = path.replace('gamefile/', '').split('/');
+        const channelId = parts[0];
+        const filename = parts[1];
+        const gameData = await loadGameFile(channelId, filename);
+        if (gameData) {
+          const label = channelId === 'god' ? 'god' : channelId;
+          setViewer('智能体文件 / ' + label + ' / ' + gameData.filename, gameData.content);
         }
       } else {
         const fileData = await loadOpenvikingFile(path);
