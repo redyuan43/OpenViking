@@ -328,24 +328,6 @@ See the complete JSON Schema below:
             max_retries=self.vlm.max_retries,
         )
         # print(f'response={response}')
-        # Log cache hit info
-        if hasattr(response, "usage") and response.usage:
-            usage = response.usage
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            cached_tokens = (
-                usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
-                if isinstance(usage.get("prompt_tokens_details"), dict)
-                else 0
-            )
-            if prompt_tokens > 0:
-                cache_hit_rate = (cached_tokens / prompt_tokens) * 100
-                logger.info(
-                    f"[KVCache] prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, cache_hit_rate={cache_hit_rate:.1f}%"
-                )
-            else:
-                logger.info(
-                    f"[KVCache] prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}"
-                )
 
         # Case 1: LLM returned tool calls
         if response.has_tool_calls:
@@ -439,7 +421,8 @@ See the complete JSON Schema below:
                 item_dict = dict(item) if hasattr(item, "model_dump") else dict(item)
                 try:
                     uri = resolve_flat_model_uri(
-                        item_dict, registry, "default", "default", memory_type=field_name
+                        item_dict, registry, "default", "default", memory_type=field_name,
+                        extract_context=self._extract_context,
                     )
                 except Exception as e:
                     logger.warning(f"Failed to resolve URI for {item}: {e}")

@@ -67,6 +67,41 @@ class VolcEngineVLM(OpenAIVLM):
             )
         return message.content or ""
 
+    def _update_token_usage_from_response(
+        self,
+        response,
+        duration_seconds: float = 0.0,
+    ) -> None:
+        """Update token usage from Chat Completions response."""
+        if hasattr(response, "usage") and response.usage:
+            # Log raw usage for debugging
+            logger.info(f"[Usage] raw usage: {response.usage}")
+
+            prompt_tokens = response.usage.prompt_tokens or 0
+            completion_tokens = response.usage.completion_tokens or 0
+            cached_tokens = 0
+
+            # Extract cached_tokens from prompt_tokens_details
+            if hasattr(response.usage, "prompt_tokens_details") and response.usage.prompt_tokens_details:
+                cached_tokens = response.usage.prompt_tokens_details.cached_tokens or 0
+
+            # Log cache hit info
+            if prompt_tokens > 0:
+                cache_hit_rate = (cached_tokens / prompt_tokens) * 100
+                logger.info(
+                    f"[KVCache] prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}, cache_hit_rate={cache_hit_rate:.1f}%"
+                )
+            else:
+                logger.info(f"[KVCache] prompt_tokens={prompt_tokens}, cached_tokens={cached_tokens}")
+
+            self.update_token_usage(
+                model_name=self.model or "doubao-seed-2-0-pro-260215",
+                provider=self.provider,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                duration_seconds=duration_seconds,
+            )
+
     def get_client(self):
         """Get sync client"""
         if self._sync_client is None:
