@@ -3,6 +3,7 @@
 """SemanticProcessor: Processes messages from SemanticQueue, generates .abstract.md and .overview.md."""
 
 import asyncio
+import re
 import threading
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -723,11 +724,12 @@ class SemanticProcessor(DequeueHandlerBase):
         max_chars = get_openviking_config().semantic.max_file_content_chars
         if len(content) > max_chars:
             content = content[:max_chars] + "\n...(truncated)"
+        fallback_summary = self._build_text_summary_fallback(file_name, content)
 
         # Generate summary
         if not vlm.is_available():
-            logger.warning("VLM not available, using empty summary")
-            return {"name": file_name, "summary": ""}
+            logger.warning("VLM not available, using fallback summary")
+            return {"name": file_name, "summary": fallback_summary}
 
         from openviking.session.memory.utils.language import _detect_language_from_text
 
@@ -736,6 +738,9 @@ class SemanticProcessor(DequeueHandlerBase):
 
         # Detect file type and select appropriate prompt
         file_type = self._detect_file_type(file_name)
+        embedding_cfg = get_openviking_config().embedding
+        if file_type != FILE_TYPE_CODE and embedding_cfg.text_source == "content_only":
+            return {"name": file_name, "summary": fallback_summary}
 
         if file_type == FILE_TYPE_CODE:
             code_mode = get_openviking_config().code.code_summary_mode
@@ -760,8 +765,13 @@ class SemanticProcessor(DequeueHandlerBase):
                                 "output_language": output_language,
                             },
                         )
-                        async with llm_sem:
-                            summary = await vlm.get_completion_async(prompt)
+                        summary = await self._complete_with_timeout(
+                            prompt=prompt,
+                            llm_sem=llm_sem,
+                            fallback=fallback_summary,
+                            operation="Code AST summary",
+                            source=file_path,
+                        )
                         return {"name": file_name, "summary": summary.strip()}
                 if skeleton_text is None:
                     logger.info("AST unsupported language, fallback to LLM: %s", file_path)
@@ -773,8 +783,13 @@ class SemanticProcessor(DequeueHandlerBase):
                 "semantic.code_summary",
                 {"file_name": file_name, "content": content, "output_language": output_language},
             )
-            async with llm_sem:
-                summary = await vlm.get_completion_async(prompt)
+            summary = await self._complete_with_timeout(
+                prompt=prompt,
+                llm_sem=llm_sem,
+                fallback=fallback_summary,
+                operation="Code summary",
+                source=file_path,
+            )
             return {"name": file_name, "summary": summary.strip()}
 
         elif file_type == FILE_TYPE_DOCUMENTATION:
@@ -787,8 +802,13 @@ class SemanticProcessor(DequeueHandlerBase):
             {"file_name": file_name, "content": content, "output_language": output_language},
         )
 
-        async with llm_sem:
-            summary = await vlm.get_completion_async(prompt)
+        summary = await self._complete_with_timeout(
+            prompt=prompt,
+            llm_sem=llm_sem,
+            fallback=fallback_summary,
+            operation="Text summary",
+            source=file_path,
+        )
         return {"name": file_name, "summary": summary.strip()}
 
     async def _generate_single_file_summary(
@@ -839,6 +859,97 @@ class SemanticProcessor(DequeueHandlerBase):
                     content_lines.append(line.strip())
 
         return "\n".join(content_lines).strip()
+
+    def _semantic_llm_timeout_seconds(self) -> float:
+        """Return the timeout for one semantic LLM call."""
+        timeout = float(getattr(get_openviking_config().semantic, "llm_timeout_seconds", 180.0))
+        return timeout if timeout > 0 else 180.0
+
+    def _build_text_summary_fallback(self, file_name: str, content: str) -> str:
+        """Build a deterministic text summary when LLM generation is unavailable."""
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        snippets: List[str] = []
+        for line in lines:
+            if line.startswith("#"):
+                snippets.append(line.lstrip("#").strip())
+            elif not line.startswith((">", "-", "*", "```", "![", "[")):
+                snippets.append(line)
+            if len(" ".join(snippets)) >= 220:
+                break
+        summary = " ".join(snippets).strip() or f"{file_name} content"
+        summary = re.sub(r"\s+", " ", summary)
+        if len(summary) > 240:
+            summary = summary[:237].rstrip() + "..."
+        return summary
+
+    def _build_overview_fallback(
+        self,
+        dir_name: str,
+        file_summaries: List[Dict[str, str]],
+        children_abstracts: List[Dict[str, str]],
+    ) -> str:
+        """Build a deterministic directory overview when LLM generation fails."""
+        lines = [
+            f"# {dir_name}",
+            "",
+            f"{dir_name} contains {len(file_summaries)} files and {len(children_abstracts)} subdirectories.",
+            "",
+        ]
+        if file_summaries:
+            lines.extend(["## Files", ""])
+            for item in file_summaries[:10]:
+                summary = (item.get("summary") or "").strip() or "No summary available."
+                lines.append(f"- {item['name']}: {summary}")
+            if len(file_summaries) > 10:
+                lines.append(f"- ... and {len(file_summaries) - 10} more files")
+            lines.append("")
+        if children_abstracts:
+            lines.extend(["## Subdirectories", ""])
+            for item in children_abstracts[:10]:
+                abstract = (item.get("abstract") or "").strip() or "No abstract available."
+                lines.append(f"- {item['name']}/: {abstract}")
+            if len(children_abstracts) > 10:
+                lines.append(f"- ... and {len(children_abstracts) - 10} more subdirectories")
+            lines.append("")
+        return "\n".join(lines).strip()
+
+    async def _complete_with_timeout(
+        self,
+        *,
+        prompt: str,
+        llm_sem: Optional[asyncio.Semaphore],
+        fallback: str,
+        operation: str,
+        source: str,
+    ) -> str:
+        """Run one semantic LLM request with timeout and fallback."""
+        timeout = self._semantic_llm_timeout_seconds()
+        vlm = get_openviking_config().vlm
+
+        async def _call() -> str:
+            return (await vlm.get_completion_async(prompt)).strip()
+
+        try:
+            if llm_sem is None:
+                return await asyncio.wait_for(_call(), timeout=timeout)
+            async with llm_sem:
+                return await asyncio.wait_for(_call(), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[SemanticProcessor] %s timed out after %.1fs for %s, using fallback",
+                operation,
+                timeout,
+                source,
+            )
+            return fallback
+        except Exception as exc:
+            logger.warning(
+                "[SemanticProcessor] %s failed for %s, using fallback: %s",
+                operation,
+                source,
+                exc,
+            )
+            return fallback
 
     def _enforce_size_limits(self, overview: str, abstract: str) -> Tuple[str, str]:
         """Enforce max size limits on overview and abstract."""
@@ -930,8 +1041,14 @@ class SemanticProcessor(DequeueHandlerBase):
         semantic = config.semantic
 
         if not vlm.is_available():
-            logger.warning("VLM not available, using default overview")
-            return f"# {dir_uri.split('/')[-1]}\n\nDirectory overview"
+            logger.warning("VLM not available, using fallback overview")
+            return self._build_overview_fallback(
+                dir_uri.split("/")[-1], file_summaries, children_abstracts
+            )
+        if config.embedding.text_source == "content_only":
+            return self._build_overview_fallback(
+                dir_uri.split("/")[-1], file_summaries, children_abstracts
+            )
 
         from openviking.session.memory.utils.language import _detect_language_from_text
 
@@ -994,6 +1111,8 @@ class SemanticProcessor(DequeueHandlerBase):
                 file_summaries_str,
                 children_abstracts_str,
                 file_index_map,
+                file_summaries=file_summaries,
+                children_abstracts=children_abstracts,
                 output_language=output_language,
             )
         else:
@@ -1002,6 +1121,8 @@ class SemanticProcessor(DequeueHandlerBase):
                 file_summaries_str,
                 children_abstracts_str,
                 file_index_map,
+                file_summaries=file_summaries,
+                children_abstracts=children_abstracts,
                 output_language=output_language,
             )
 
@@ -1013,12 +1134,16 @@ class SemanticProcessor(DequeueHandlerBase):
         file_summaries_str: str,
         children_abstracts_str: str,
         file_index_map: Dict[int, str],
+        file_summaries: Optional[List[Dict[str, str]]] = None,
+        children_abstracts: Optional[List[Dict[str, str]]] = None,
         output_language: str = "en",
     ) -> str:
         """Generate overview from a single prompt (small directories)."""
-        import re
-
-        vlm = get_openviking_config().vlm
+        file_summaries = file_summaries or []
+        children_abstracts = children_abstracts or []
+        fallback = self._build_overview_fallback(
+            dir_uri.split("/")[-1], file_summaries, children_abstracts
+        )
 
         try:
             prompt = render_prompt(
@@ -1031,7 +1156,13 @@ class SemanticProcessor(DequeueHandlerBase):
                 },
             )
 
-            overview = await vlm.get_completion_async(prompt)
+            overview = await self._complete_with_timeout(
+                prompt=prompt,
+                llm_sem=None,
+                fallback=fallback,
+                operation="Directory overview",
+                source=dir_uri,
+            )
 
             # Post-process: replace [number] with actual file name
             def replace_index(match):
@@ -1047,7 +1178,7 @@ class SemanticProcessor(DequeueHandlerBase):
                 f"Failed to generate overview for {dir_uri}: {e}",
                 exc_info=True,
             )
-            return f"# {dir_uri.split('/')[-1]}\n\nDirectory overview"
+            return fallback
 
     async def _batched_generate_overview(
         self,
@@ -1065,7 +1196,6 @@ class SemanticProcessor(DequeueHandlerBase):
         """
         import re
 
-        vlm = get_openviking_config().vlm
         semantic = get_openviking_config().semantic
         batch_size = semantic.overview_batch_size
         dir_name = dir_uri.split("/")[-1]
@@ -1124,8 +1254,18 @@ class SemanticProcessor(DequeueHandlerBase):
 
         async def _run_batch(batch_idx: int, prompt: str, batch_index_map: Dict[int, str]) -> None:
             try:
-                async with llm_sem:
-                    partial = await vlm.get_completion_async(prompt)
+                batch_items = batches[batch_idx]
+                partial = await self._complete_with_timeout(
+                    prompt=prompt,
+                    llm_sem=llm_sem,
+                    fallback=self._build_overview_fallback(
+                        dir_name,
+                        batch_items,
+                        children_abstracts if batch_idx == 0 else [],
+                    ),
+                    operation=f"Partial overview batch {batch_idx + 1}",
+                    source=dir_uri,
+                )
                 partial = re.sub(r"\[(\d+)\]", make_replacer(batch_index_map), partial)
                 partial_overviews[batch_idx] = partial.strip()
             except Exception as e:
@@ -1138,7 +1278,7 @@ class SemanticProcessor(DequeueHandlerBase):
         partial_overviews = [p for p in partial_overviews if p is not None]
 
         if not partial_overviews:
-            return f"# {dir_name}\n\nDirectory overview"
+            return self._build_overview_fallback(dir_name, file_summaries, children_abstracts)
 
         # If only one batch succeeded, use it directly
         if len(partial_overviews) == 1:
@@ -1146,6 +1286,7 @@ class SemanticProcessor(DequeueHandlerBase):
 
         # Merge partials into a final overview (include children for context)
         combined = "\n\n---\n\n".join(partial_overviews)
+        fallback = self._build_overview_fallback(dir_name, file_summaries, children_abstracts)
         try:
             prompt = render_prompt(
                 "semantic.overview_generation",
@@ -1156,14 +1297,20 @@ class SemanticProcessor(DequeueHandlerBase):
                     "output_language": output_language,
                 },
             )
-            overview = await vlm.get_completion_async(prompt)
+            overview = await self._complete_with_timeout(
+                prompt=prompt,
+                llm_sem=llm_sem,
+                fallback=fallback,
+                operation="Merged overview",
+                source=dir_uri,
+            )
             return overview.strip()
         except Exception as e:
             logger.error(
                 f"Failed to merge partial overviews for {dir_uri}: {e}",
                 exc_info=True,
             )
-            return partial_overviews[0]
+            return fallback
 
     async def _vectorize_directory(
         self,
