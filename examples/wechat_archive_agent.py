@@ -1959,6 +1959,39 @@ def _filter_export_paths_by_range(
     return filtered_paths
 
 
+def _build_export_text_cache(paths: Sequence[Path]) -> dict[Path, str]:
+    cache: dict[Path, str] = {}
+    for path in paths:
+        resolved_path = path.resolve()
+        if resolved_path in cache:
+            continue
+        cache[resolved_path] = _read_text_quiet(path).lower()
+    return cache
+
+
+def _matched_paths_for_query(
+    paths: Sequence[Path],
+    *,
+    query: str,
+    text_cache: dict[Path, str] | None = None,
+) -> List[Path]:
+    if text_cache is None:
+        return [item.path for item in find_text_matches(paths, query)]
+
+    query_lower = query.lower()
+    matched_paths: List[Path] = []
+    seen_paths: set[Path] = set()
+    for path in paths:
+        resolved_path = path.resolve()
+        if resolved_path in seen_paths:
+            continue
+        seen_paths.add(resolved_path)
+        if query_lower not in text_cache.get(resolved_path, ''):
+            continue
+        matched_paths.append(path)
+    return matched_paths
+
+
 def _collect_topic_prompt_sections(
     args: argparse.Namespace,
     *,
@@ -1969,6 +2002,7 @@ def _collect_topic_prompt_sections(
     end_date: str | None = None,
     chat: str | None = None,
     export_paths: Sequence[Path] | None = None,
+    export_text_cache: dict[Path, str] | None = None,
     client=None,
 ) -> List[PromptSection]:
     if export_paths is None:
@@ -1987,8 +2021,11 @@ def _collect_topic_prompt_sections(
         end_date=end_date,
     )
 
-    text_matches = find_text_matches(export_paths, query)
-    matched_paths = [item.path for item in text_matches[: max(limit, 1) * 2]]
+    matched_paths = _matched_paths_for_query(
+        export_paths,
+        query=query,
+        text_cache=export_text_cache,
+    )[: max(limit, 1) * 2]
     export_sections = _analysis_sections_to_prompt_sections(
         collect_analysis_sections(
             matched_paths,
@@ -2246,6 +2283,7 @@ def run_watchlist_alerts(args: argparse.Namespace) -> int:
             include_overviews=True,
         )
     )
+    export_text_cache = _build_export_text_cache(export_paths)
 
     topic_rows: List[tuple[WatchlistTopic, Sequence[PromptSection]]] = []
     client = _open_client(args, quiet=True)
@@ -2260,6 +2298,7 @@ def run_watchlist_alerts(args: argparse.Namespace) -> int:
                 end_date=args.end_date,
                 chat=args.chat,
                 export_paths=export_paths,
+                export_text_cache=export_text_cache,
                 client=client,
             )
             topic_rows.append((topic, matches))
