@@ -180,6 +180,13 @@ class TextEmbeddingHandler(DequeueHandlerBase):
         """Initialize the embedder instance from config."""
         self._embedder = config.embedding.get_embedder()
 
+    @staticmethod
+    def _prepare_embedding_text(text: str) -> str:
+        """Apply the configured text clamp before calling the embedding backend."""
+        from openviking.utils.embedding_utils import truncate_text_for_embedding
+
+        return truncate_text_for_embedding(text)
+
     @classmethod
     def _merge_request_stats(
         cls, telemetry_id: str, processed: int = 0, error_count: int = 0
@@ -282,8 +289,9 @@ class TextEmbeddingHandler(DequeueHandlerBase):
                         import time as _time
 
                         _embed_t0 = _time.monotonic()
+                        prepared_message = self._prepare_embedding_text(embedding_msg.message)
                         result: EmbedResult = await asyncio.to_thread(
-                            self._embedder.embed, embedding_msg.message
+                            self._embedder.embed, prepared_message
                         )
                         _embed_elapsed = _time.monotonic() - _embed_t0
                         try:

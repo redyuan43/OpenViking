@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenViking Local GPU Embedding Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/nx/github/OpenViking
+Environment=LOCAL_EMBED_DEVICE=auto
+ExecStart=/home/nx/github/OpenViking/scripts/run_local_embedding_service.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

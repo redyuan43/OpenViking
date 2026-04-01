@@ -554,6 +554,9 @@ class SemanticConfig:
     memory_chunk_overlap: int = 200
     """Character overlap between adjacent memory chunks for context continuity."""
 
+    llm_timeout_seconds: float = 180.0
+    """Maximum seconds allowed for a single semantic LLM call before fallback."""
+
 
 # Configuration registry for dynamic loading
 PARSER_CONFIG_REGISTRY = {
