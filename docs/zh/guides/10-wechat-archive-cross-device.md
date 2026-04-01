@@ -159,6 +159,47 @@ systemctl --user daemon-reload
 systemctl --user restart openviking-wechat-archive-server.service
 ```
 
+### 5.1 一次性安装命令
+
+如果你就是要一段可以直接复制执行的服务机初始化命令，可以用这一版：
+
+```bash
+cd "$HOME/github/OpenViking"
+mkdir -p "$HOME/.config/systemd/user"
+
+cp systemd/user/openviking-local-embed.service "$HOME/.config/systemd/user/"
+cp systemd/user/openviking-local-rerank.service "$HOME/.config/systemd/user/"
+cp systemd/user/openviking-wechat-archive-server.service "$HOME/.config/systemd/user/"
+
+mkdir -p "$HOME/.config/systemd/user/openviking-wechat-archive-server.service.d"
+cat > "$HOME/.config/systemd/user/openviking-wechat-archive-server.service.d/override.conf" <<'EOF'
+[Service]
+Environment=OPENVIKING_SERVER_HOST=0.0.0.0
+Environment=OPENVIKING_SERVER_PORT=1934
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now openviking-local-embed.service
+systemctl --user enable --now openviking-local-rerank.service
+systemctl --user enable --now openviking-wechat-archive-server.service
+```
+
+### 5.2 常用运维命令
+
+```bash
+systemctl --user status openviking-local-embed.service
+systemctl --user status openviking-local-rerank.service
+systemctl --user status openviking-wechat-archive-server.service
+
+systemctl --user restart openviking-local-embed.service
+systemctl --user restart openviking-local-rerank.service
+systemctl --user restart openviking-wechat-archive-server.service
+
+journalctl --user -u openviking-local-embed.service -f
+journalctl --user -u openviking-local-rerank.service -f
+journalctl --user -u openviking-wechat-archive-server.service -f
+```
+
 ### 6. 构建索引
 
 增量索引：
@@ -236,6 +277,32 @@ python3 -m venv .venv
   --http-url "http://<服务机IP>:1934"
 ```
 
+### 2.1 客户端最小包装脚本
+
+如果你不想每次都手写 `--http-url`，可以在客户端放一个最小脚本：
+
+```bash
+mkdir -p "$HOME/bin"
+cat > "$HOME/bin/wx-archive" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="${OPENVIKING_REPO_DIR:-$HOME/github/OpenViking}"
+PYTHON_BIN="${OPENVIKING_PYTHON_BIN:-$REPO_DIR/.venv/bin/python}"
+SERVER_URL="${WECHAT_ARCHIVE_SERVER_URL:-http://<服务机IP>:1934}"
+
+exec "$PYTHON_BIN" "$REPO_DIR/examples/wechat_archive_agent.py" "$@" --http-url "$SERVER_URL"
+EOF
+chmod +x "$HOME/bin/wx-archive"
+```
+
+使用示例：
+
+```bash
+WECHAT_ARCHIVE_SERVER_URL="http://<服务机IP>:1934" wx-archive search "自动驾驶" --limit 5
+WECHAT_ARCHIVE_SERVER_URL="http://<服务机IP>:1934" wx-archive daily-summary "2026-04-01"
+```
+
 ### 3. 不要在客户端跑的命令
 
 下面这些命令应该只在服务机上执行：
@@ -250,6 +317,65 @@ python3 -m venv .venv
 - `--workspace`
 
 这些路径默认都指向服务机本地文件系统，而不是客户端。
+
+## 快速排障
+
+### 1. 客户端连不上 `1934`
+
+先在服务机上检查：
+
+```bash
+curl "http://127.0.0.1:1934/health"
+ss -ltnp | rg ":1934"
+systemctl --user status openviking-wechat-archive-server.service
+```
+
+如果服务机本地能通，但其他设备不通，优先检查：
+
+- `OPENVIKING_SERVER_HOST` 是否仍然是 `127.0.0.1`
+- 防火墙是否放行 `1934`
+- 两台设备是否在同一局域网或同一 VPN
+
+### 2. `1934` 健康，但检索报 embedding 或 rerank 错
+
+这说明 OpenViking HTTP 服务起来了，但内部依赖没起来。检查：
+
+```bash
+curl "http://127.0.0.1:8766/healthz"
+curl "http://127.0.0.1:8765/healthz"
+systemctl --user status openviking-local-embed.service
+systemctl --user status openviking-local-rerank.service
+```
+
+### 3. 首次 index 很慢或直接失败
+
+优先检查这几项：
+
+- `~/.openviking/wechat_archive_local_gpu_server.conf` 里的 `storage.workspace` 是否存在并可写
+- `~/.openviking/ov.conf` 和 server 专用配置里的 embedding / rerank 地址是否一致
+- `~/.local/share/wechat-rerank/.venv` 是否已经通过 `./scripts/setup_local_rerank_env.sh` 初始化完成
+
+### 4. 客户端误走本地模式
+
+跨设备使用时，务必显式加：
+
+```bash
+--http-url "http://<服务机IP>:1934"
+```
+
+否则客户端可能尝试走本地 workspace 或本地自动拉起逻辑。
+
+### 5. 重启后服务没自动起来
+
+检查服务是否真的启用了：
+
+```bash
+systemctl --user is-enabled openviking-local-embed.service
+systemctl --user is-enabled openviking-local-rerank.service
+systemctl --user is-enabled openviking-wechat-archive-server.service
+```
+
+如果机器重启后用户会话没有起来，`systemd --user` 服务是否随开机运行，还取决于你的系统登录方式和 linger 策略。
 
 ## 常见问题
 
