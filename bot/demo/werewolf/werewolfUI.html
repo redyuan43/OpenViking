@@ -3107,8 +3107,11 @@ function bindNav() {
         if (gameEnded) {
           forceBtn.style.display = '';
           forceBtn.textContent = '重新开始';
-        } else {
+        } else if (running) {
           forceBtn.style.display = 'none';
+        } else {
+          forceBtn.style.display = '';
+          forceBtn.textContent = '重新开始';
         }
       }
     }
