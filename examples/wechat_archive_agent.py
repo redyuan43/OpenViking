@@ -1008,6 +1008,18 @@ def _analysis_kwargs(args: argparse.Namespace) -> dict:
     }
 
 
+def _emit_output(text: str, output_path: str | None) -> None:
+    rendered = text.rstrip() + "\n"
+    if not output_path or output_path == "-":
+        print(rendered, end="")
+        return
+
+    path = Path(output_path).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(rendered, encoding="utf-8")
+    print(f"[wechat-archive-agent] wrote output: {path}", file=sys.stderr)
+
+
 def _admin_base_from_api_base(api_base: str | None) -> str | None:
     if not api_base:
         return None
