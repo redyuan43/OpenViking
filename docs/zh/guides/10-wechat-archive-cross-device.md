@@ -8,6 +8,78 @@
 - Embedding / Rerank 模型只跑在一台 GPU 机器上
 - 其他电脑、平板或终端只想复用检索和分析能力
 
+## 项目能力
+
+当前项目里，微信归档这条能力线支持：
+
+- 导出微信归档并重建 OpenViking 检索索引
+- 语义检索、按天摘要、单聊天分析、主题报告、热点提炼、日期对比、时间线分析、发送者分析、外链文章排序
+- 生成可回写到 OpenViking 的 `topic-memory-card` 和 `watchlist-alerts`
+- 通过 `--http-url` 让客户端复用服务机上的归档查询与分析能力
+- 用本地 embedding `8766`、rerank `8765`、archive HTTP `1934` 组合成服务化部署
+
+## 微信数据模型与覆盖范围
+
+当前项目读取的微信输入结构主要是：
+
+- `/home/nx/chat_archive/chats/<chat>/chat_meta.json`
+- `/home/nx/chat_archive/chats/<chat>/messages/*.jsonl`
+
+导出后主要产物是：
+
+- 根级导出摘要 `README.md`
+- 每个聊天的 `chats/<chat>/chat.md`
+- 每天的 `chats/<chat>/days/YYYY-MM-DD.md`
+- 链接消息关联复制出来的本地 `document.md`
+
+当前导出和分析会稳定保留的信息包括：
+
+- 聊天级：`chat_id`、`chat_type`、`aliases`、`first_seen_ts`、`last_seen_ts`、`message_count`
+- 消息级：时间、发送者、`type_label (base_type/sub_type)`、`message_key`、`event_kind`、`first_seen_ts`、`processed_ts`、主 `url`、`analysis`、`linked_doc_summary`、`linked_doc`
+
+当前高置信覆盖：
+
+- 文本消息
+- 分享链接及其 `document.md`
+- 语音消息的类型化记录
+- 系统通知的类型化记录
+
+当前边界：
+
+- 高层分析最强的是文本与链接文章内容
+- 图片、视频、通用文件消息虽然可能通过类型标签和原始内容保留下来，但目前没有同等强度的专项分析逻辑
+- `index` 仍然是服务机本地工作流，不适合放到远程客户端执行
+
+## 操作手册
+
+先判断执行模式：
+
+- 服务机 / 本地归档模式：不传 `--http-url`，可以执行 `index`
+- 客户端 / 跨设备模式：显式传 `--http-url`，不要执行 `index`
+- 用户说 `today`、`yesterday` 之类相对日期时，先换算成绝对日期再执行命令
+
+再按用户意图选命令：
+
+- 重建索引：`index`
+- 快速确认某主题是否出现：`search`
+- 汇总某一天：`daily-summary`
+- 汇总某个聊天 / 群 / 公众号：`chat-summary`
+- 深度分析某个主题：`topic-report`
+- 找热点：`hotspots`
+- 对比两天：`compare-days`
+- 看主题演进：`timeline-report`
+- 看谁在贡献内容：`sender-report`
+- 挑最值得读的外链文章：`top-articles`
+- 沉淀持久化报告：`topic-memory-card`、`watchlist-alerts`
+
+排障顺序优先看服务健康：
+
+```bash
+curl "http://127.0.0.1:8766/healthz"
+curl "http://127.0.0.1:8765/healthz"
+curl "http://127.0.0.1:1934/health"
+```
+
 ## 推荐架构
 
 推荐采用“一台服务机 + 多台客户端”的结构：

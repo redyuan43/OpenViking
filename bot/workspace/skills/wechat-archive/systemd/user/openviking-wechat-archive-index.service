@@ -8,7 +8,7 @@ Type=oneshot
 WorkingDirectory=%h/github/OpenViking
 Environment=PYTHONUNBUFFERED=1
 Environment=OPENVIKING_REPO_DIR=%h/github/OpenViking
-ExecStart=%h/github/my-skills-repo/wechat-archive/scripts/run_wechat_archive_daily_index.sh
+ExecStart=%h/github/OpenViking/bot/workspace/skills/wechat-archive/scripts/run_wechat_archive_daily_index.sh
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

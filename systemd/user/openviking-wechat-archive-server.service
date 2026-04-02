@@ -5,8 +5,8 @@ Wants=network-online.target openviking-local-embed.service openviking-local-rera
 
 [Service]
 Type=simple
-WorkingDirectory=/home/nx/github/OpenViking
-ExecStart=/home/nx/github/OpenViking/scripts/run_wechat_archive_http_service.sh
+Environment=OPENVIKING_REPO_DIR=%h/github/OpenViking
+ExecStart=%h/github/OpenViking/bot/workspace/skills/wechat-archive/scripts/run_wechat_archive_http_service.sh
 Restart=on-failure
 RestartSec=5
 
