@@ -80,6 +80,34 @@ curl "http://127.0.0.1:8765/healthz"
 curl "http://127.0.0.1:1934/health"
 ```
 
+## Skill 名称与调用方式
+
+这条能力线在当前工程和 publish skills 里的正式 skill 名称是：
+
+- `wechat-archive`
+
+中文场景下，推荐统一称呼为：
+
+- `微信归档`
+
+如果只是人和人交流，`微信归档` 这个中文名字最自然。
+如果是为了稳定命中 skill 或减少歧义，优先显式写：`wechat-archive`。
+
+推荐说法：
+
+- 中文称呼：`微信归档`
+- skill 名称 / ID：`wechat-archive`
+
+推荐调用示例：
+
+- `用 wechat-archive 查一下自动驾驶`
+- `用 wechat-archive 总结昨天的微信内容`
+- `用 wechat-archive 做一个机器人 topic-report`
+- `帮我总结昨天的微信归档`
+- `查一下微信归档里关于自动驾驶的内容`
+
+如果你在写脚本、prompt 模板或自动化规则，建议直接用 `wechat-archive`，不要只写中文别名。
+
 ## 推荐架构
 
 推荐采用“一台服务机 + 多台客户端”的结构：
